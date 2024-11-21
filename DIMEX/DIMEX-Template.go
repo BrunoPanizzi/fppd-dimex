@@ -22,6 +22,7 @@ package DIMEX
 import (
 	PP2PLink "SD/PP2PLink"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -137,9 +138,9 @@ func (module *DIMEX_Module) handleUponReqEntry() {
 	module.reqTs = module.lcl
 	module.nbrResps = 0
 
-	for i, dmx := range module.processes {
+	for i := 0; i < len(module.processes); i++ {
 		if i != module.id {
-			module.sendToLink(dmx, "reqEntry", "    ")
+			module.sendToLink(module.processes[i], (strconv.Itoa(module.reqTs) + "," + strconv.Itoa(module.id) + "reqEntry"), strconv.Itoa(module.id))
 		}
 	}
 	module.st = wantMX
@@ -156,13 +157,13 @@ func (module *DIMEX_Module) handleUponReqEntry() {
 }
 
 func (module *DIMEX_Module) handleUponReqExit() {
-	for i, dmx := range module.processes {
-		if i != module.id {
-			module.sendToLink(dmx, "respOk", "    ")
+	for i := 0; i < len(module.waiting); i++ {
+		if module.waiting[i] {
+			module.sendToLink(module.processes[i], "respOK", strconv.Itoa(module.id))
+			module.waiting[i] = false
 		}
 	}
 
-	module.waiting = []bool {}
 	module.st = noMX
 	/*
 				quando aplicação avisa [ dmx, Exit   ]  faça
@@ -180,19 +181,19 @@ func (module *DIMEX_Module) handleUponReqExit() {
 // ------------------------------------------------------------------------------------
 
 func (module *DIMEX_Module) handleUponDeliverRespOk(msgOutro PP2PLink.PP2PLink_Ind_Message) {
-	// if msgOutro.Message == 
 	module.nbrResps++
-	if module.nbrResps == len(module.processes) - 1 {
+
+	if module.nbrResps == len(module.processes)-1 {
 		module.Ind <- dmxResp{}
-	}
-	module.st = inMX
-	/*
+	    module.st = inMX
+		/*
 				quando pl entregar msg  [ pl, Deliver | q, [ respOk ] ]
 					nbrResps++
 		   		 	if nbrResps == #processes -1
 		    		then gera evento [ dmx, Deliver | resp ]
 		             	 st := inMX
 	*/
+	}
 }
 
 func (module *DIMEX_Module) handleUponDeliverReqEntry(msgOutro PP2PLink.PP2PLink_Ind_Message) {
@@ -207,6 +208,23 @@ func (module *DIMEX_Module) handleUponDeliverReqEntry(msgOutro PP2PLink.PP2PLink
 		        		// then   waiting := waiting + [ q ]     else  // empty
 		     	   lcl := max(lcl, rts)
 	*/
+	msg := strings.Split(msgOutro.Message, ",")
+	othTs, _ := strconv.Atoi(msg[0])
+	othId, _ := strconv.Atoi(msg[1])
+
+	reqTs := module.reqTs
+	id := module.id
+
+	module.outDbg("reqTs: " + strconv.Itoa(reqTs) + " id: " + strconv.Itoa(id) + " othTs: " + strconv.Itoa(othTs) + " othId: " + strconv.Itoa(othId))
+
+	if module.st == noMX || (module.st == wantMX && !before(id, reqTs, othId, othTs)) {
+		rsAddress := module.processes[othId]
+		module.sendToLink(rsAddress, "respOK", strconv.Itoa(module.id))
+	} else {
+		module.waiting[othId] = true
+	}
+
+	module.lcl = max(module.lcl, othTs) // +1 ?
 }
 
 // ------------------------------------------------------------------------------------
