@@ -137,11 +137,8 @@ func (module *DIMEX_Module) handleUponReqEntry() {
 	module.lcl++
 	module.reqTs = module.lcl
 	module.nbrResps = 0
-
 	for i := 0; i < len(module.processes); i++ {
-		if i != module.id {
-			module.sendToLink(module.processes[i], (strconv.Itoa(module.reqTs) + "," + strconv.Itoa(module.id) + "reqEntry"), strconv.Itoa(module.id))
-		}
+		module.sendToLink(module.processes[i], "reqEntry,"+strconv.Itoa(module.id)+","+strconv.Itoa(module.reqTs), "")
 	}
 	module.st = wantMX
 
@@ -159,12 +156,14 @@ func (module *DIMEX_Module) handleUponReqEntry() {
 func (module *DIMEX_Module) handleUponReqExit() {
 	for i := 0; i < len(module.waiting); i++ {
 		if module.waiting[i] {
-			module.sendToLink(module.processes[i], "respOK", strconv.Itoa(module.id))
-			module.waiting[i] = false
+			module.sendToLink(module.processes[i], "respOK,"+strconv.Itoa(module.id), "")
 		}
 	}
 
 	module.st = noMX
+	for i := 0; i < len(module.waiting); i++ {
+		module.waiting[i] = false
+	}
 	/*
 				quando aplicação avisa [ dmx, Exit   ]  faça
 			  		forall  q  em waiting
@@ -209,22 +208,16 @@ func (module *DIMEX_Module) handleUponDeliverReqEntry(msgOutro PP2PLink.PP2PLink
 		     	   lcl := max(lcl, rts)
 	*/
 	msg := strings.Split(msgOutro.Message, ",")
-	othTs, _ := strconv.Atoi(msg[0])
-	othId, _ := strconv.Atoi(msg[1])
-
-	reqTs := module.reqTs
-	id := module.id
-
-	module.outDbg("reqTs: " + strconv.Itoa(reqTs) + " id: " + strconv.Itoa(id) + " othTs: " + strconv.Itoa(othTs) + " othId: " + strconv.Itoa(othId))
-
-	if module.st == noMX || (module.st == wantMX && !before(id, reqTs, othId, othTs)) {
-		rsAddress := module.processes[othId]
-		module.sendToLink(rsAddress, "respOK", strconv.Itoa(module.id))
+	otherId, _ := strconv.Atoi(msg[1])
+	otherTs, _ := strconv.Atoi(msg[2])
+	if module.st == noMX || (module.st == wantMX && before(module.id, module.reqTs, otherId, otherTs)) {
+		module.sendToLink(module.processes[otherId], "respOK,"+strconv.Itoa(module.id), "")
 	} else {
-		module.waiting[othId] = true
+		if module.st == wantMX && before(otherId, otherTs, module.id, module.reqTs) {
+			module.waiting[otherId] = true
+		}
+		module.lcl = max(module.lcl, otherTs)
 	}
-
-	module.lcl = max(module.lcl, othTs) // +1 ?
 }
 
 // ------------------------------------------------------------------------------------
@@ -235,7 +228,8 @@ func (module *DIMEX_Module) sendToLink(address string, content string, space str
 	module.outDbg(space + " ---->>>>   to: " + address + "     msg: " + content)
 	module.Pp2plink.Req <- PP2PLink.PP2PLink_Req_Message{
 		To:      address,
-		Message: content}
+		Message: content,
+	}
 }
 
 func before(oneId, oneTs, othId, othTs int) bool {
